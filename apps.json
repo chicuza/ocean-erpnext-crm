@@ -1,0 +1,10 @@
+[
+  {
+    "url": "https://github.com/frappe/erpnext",
+    "branch": "v15.119.0"
+  },
+  {
+    "url": "https://github.com/frappe/crm",
+    "branch": "v1.81.1"
+  }
+]
