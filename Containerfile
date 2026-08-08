@@ -10,8 +10,12 @@
 # (frappe/erpnext:v15) seja a adição do app `crm`:
 #   frappe   version-15   (produção roda 15.117.0)
 #   erpnext  v15.119.0    (igual à produção)
-#   crm      v1.81.1      (última tag que aceita frappe >=15.0.0,<17.0.0;
-#                          o branch `main` exige >=16.0.0-dev e QUEBRARIA o v15)
+#   crm      v1.81.1      (tag que aceita frappe >=15.0.0,<17.0.0)
+#
+# ATENCAO: o branch DEFAULT do frappe/crm e `develop` (nao `main`), e o develop
+# exige frappe >=16.0.0-dev — QUEBRARIA o v15. `bench get-app crm` sem --branch
+# clona o default. O `main` e compativel com v15, mas fixamos a TAG porque
+# branch e ref movel. Medido em 2026-08-07 via GitHub API com ?ref= explicito.
 
 ARG FRAPPE_BRANCH=version-15
 ARG FRAPPE_IMAGE_PREFIX=frappe
