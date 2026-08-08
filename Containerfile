@@ -55,10 +55,12 @@ WORKDIR /home/frappe/frappe-bench
 RUN cp -r /home/frappe/frappe-bench/sites/assets /home/frappe/frappe-bench/assets && \
     rm -rf /home/frappe/frappe-bench/sites/assets
 
-VOLUME [ \
-  "/home/frappe/frappe-bench/sites", \
-  "/home/frappe/frappe-bench/logs" \
-]
+# NOTA: a instrucao VOLUME do Containerfile original do frappe_docker foi REMOVIDA.
+# O builder da Railway rejeita o build com:
+#   "dockerfile invalid: docker VOLUME at Line 58 is not supported, use Railway Volumes"
+# Remover e seguro: VOLUME apenas declara volume anonimo do Docker. No Ocean, o volume
+# real (3c2bd2a6-e06d-4857-9797-cd2edd33989f) ja esta montado pela Railway em
+# /home/frappe/frappe-bench/sites, pelo sistema de volumes dela.
 
 USER root
 COPY resources/core/main-entrypoint.sh /usr/local/bin/entrypoint.sh
