@@ -1,0 +1,64 @@
+name: Build and push image
+
+# POR QUE ESTE WORKFLOW EXISTE
+#
+# O design oficial do frappe_docker exige que backend, frontend, worker e scheduler
+# rodem A MESMA IMAGEM. Referência: docs/08-reference/07-how-assets-are-handled.md
+#   "The sites/assets symlink is stored inside the persistent sites volume, but its
+#    target (/home/frappe/frappe-bench/assets) comes from the container image."
+# Ou seja: o alvo do symlink de assets é SEMPRE a camada da imagem. Se cada serviço
+# rodar uma imagem diferente, o backend gera HTML com um hash de bundle e o frontend
+# serve outro -> CSS 404 e o Desk renderiza sem estilo.
+#
+# Fazer `railway up` por serviço dispara um BUILD INDEPENDENTE por serviço, e builds
+# independentes do mesmo Dockerfile NÃO produzem hashes de asset idênticos (a
+# resolução de dependências JS não é bit-a-bit determinística). Medido em 2026-08-08
+# no Ocean: backend com desk.bundle.MPYT47ZI.css e frontend com desk.bundle.ERTRBHPK.css.
+#
+# A solução, conforme a doc do Railway (Deploy from a Private Container Registry),
+# é buildar UMA vez, publicar num registry e apontar todos os serviços para a mesma tag.
+# Usamos o GITHUB_TOKEN automático do Actions com `packages: write` declarado abaixo,
+# então não é necessário um PAT pessoal com escopo write:packages.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "Containerfile"
+      - "apps.json"
+      - "resources/**"
+      - ".github/workflows/build-image.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Containerfile
+          # Railway roda linux/amd64
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:production
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
