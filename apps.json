@@ -6,5 +6,13 @@
   {
     "url": "https://github.com/frappe/crm",
     "branch": "v1.81.1"
+  },
+  {
+    "url": "https://github.com/frappe/telephony",
+    "branch": "develop"
+  },
+  {
+    "url": "https://github.com/frappe/helpdesk",
+    "branch": "v1.30.1"
   }
 ]

@@ -1,4 +1,4 @@
-# Ocean (Amabile AI) — ERPNext v15 + Frappe CRM
+# Ocean (Amabile AI) — ERPNext v15 + Frappe CRM + Frappe Helpdesk
 #
 # Baseado em frappe_docker/images/layered/Containerfile (procedimento oficial).
 # Diferença deliberada: apps.json entra via COPY em vez de BuildKit secret,
@@ -6,16 +6,28 @@
 # builder do Railway não expõe --secret. A recomendação de usar secret existe
 # para não vazar token de repo privado no histórico da imagem — não se aplica aqui.
 #
-# Versões FIXADAS para que o único delta em relação à produção atual
-# (frappe/erpnext:v15) seja a adição do app `crm`:
-#   frappe   version-15   (produção roda 15.117.0)
-#   erpnext  v15.119.0    (igual à produção)
-#   crm      v1.81.1      (tag que aceita frappe >=15.0.0,<17.0.0)
+# Versões FIXADAS para que o único delta em relação à produção seja a adição dos
+# apps `telephony` e `helpdesk`:
+#   frappe     version-15   (produção roda 15.117.0 / imagem atual 15.120.1)
+#   erpnext    v15.119.0    (igual à produção)
+#   crm        v1.81.1      (tag que aceita frappe >=15.0.0,<17.0.0)
+#   telephony  develop      (único branch existente; não há tags no repo)
+#   helpdesk   v1.30.1      (tag que aceita frappe >=15.116.1,<17.0.0)
 #
-# ATENCAO: o branch DEFAULT do frappe/crm e `develop` (nao `main`), e o develop
-# exige frappe >=16.0.0-dev — QUEBRARIA o v15. `bench get-app crm` sem --branch
-# clona o default. O `main` e compativel com v15, mas fixamos a TAG porque
-# branch e ref movel. Medido em 2026-08-07 via GitHub API com ?ref= explicito.
+# ATENCAO (1): o branch DEFAULT do frappe/crm e `develop` (nao `main`), e o develop
+# exige frappe >=16.0.0-dev — QUEBRARIA o v15. Por isso crm fica fixado em tag.
+# ATENCAO (2): nao existe --branch `main` no frappe/telephony; o repo so tem
+# `develop`. helpdesk declara a dependencia `telephony >=0.0.1,<1.0.0`.
+#
+# ATENCAO (3) — POR QUE O BUILD DE ASSETS ACONTECE EM DUAS ETAPAS:
+# O frontend do helpdesk (apps/helpdesk/desk, vite) importa `socketio_port` de
+# sites/common_site_config.json EM TEMPO DE BUILD. Se a chave nao existir o
+# Rollup falha com:
+#   '"socketio_port" is not exported by "../../sites/common_site_config.json"'
+# Por isso o `bench init` roda com --skip-assets, escrevemos um
+# common_site_config.json minimo com socketio_port e SO ENTAO rodamos `bench build`.
+# Em runtime o start command do servico sobrescreve esse config com os valores reais
+# (bench set-config -g ...), entao o arquivo da imagem e apenas um placeholder de build.
 
 ARG FRAPPE_BRANCH=version-15
 ARG FRAPPE_IMAGE_PREFIX=frappe
@@ -30,6 +42,7 @@ COPY apps.json /opt/frappe/apps.json
 RUN chown frappe:frappe /opt/frappe/apps.json
 USER frappe
 
+# 1) bench init SEM assets (o helpdesk ainda nao tem o config de socketio_port)
 RUN bench init \
       --apps_path=/opt/frappe/apps.json \
       --frappe-branch=${FRAPPE_BRANCH} \
@@ -37,11 +50,33 @@ RUN bench init \
       --no-procfile \
       --no-backups \
       --skip-redis-config-generation \
+      --skip-assets \
       --verbose \
       /home/frappe/frappe-bench && \
     cd /home/frappe/frappe-bench && \
-    echo "{}" > sites/common_site_config.json && \
     find apps -mindepth 1 -path "*/.git" | xargs rm -fr
+
+# 2) config de build: socketio_port e obrigatorio para o vite do helpdesk
+RUN cd /home/frappe/frappe-bench && \
+    printf '{\n "socketio_port": 9000,\n "file_watcher_port": 6787\n}\n' \
+      > sites/common_site_config.json
+
+# 3) dependencias de frontend exigidas pelo build dos apps
+#    (apps/frappe/ui e importado pelo desk do helpdesk e resolve `leaflet` de la)
+RUN cd /home/frappe/frappe-bench/apps/frappe/ui && yarn install || true; \
+    cd /home/frappe/frappe-bench && \
+    for app in helpdesk telephony crm; do \
+      if [ -f apps/$app/frontend/package.json ]; then \
+        cd /home/frappe/frappe-bench/apps/$app/frontend && yarn install; \
+      fi; \
+      if [ -f apps/$app/desk/package.json ]; then \
+        cd /home/frappe/frappe-bench/apps/$app/desk && yarn install; \
+      fi; \
+      cd /home/frappe/frappe-bench; \
+    done
+
+# 4) build de todos os assets
+RUN cd /home/frappe/frappe-bench && bench build
 
 FROM ${FRAPPE_IMAGE_PREFIX}/base:${FRAPPE_BRANCH} AS backend
 
@@ -59,8 +94,7 @@ RUN cp -r /home/frappe/frappe-bench/sites/assets /home/frappe/frappe-bench/asset
 # O builder da Railway rejeita o build com:
 #   "dockerfile invalid: docker VOLUME at Line 58 is not supported, use Railway Volumes"
 # Remover e seguro: VOLUME apenas declara volume anonimo do Docker. No Ocean, o volume
-# real (3c2bd2a6-e06d-4857-9797-cd2edd33989f) ja esta montado pela Railway em
-# /home/frappe/frappe-bench/sites, pelo sistema de volumes dela.
+# real ja esta montado pela Railway em /home/frappe/frappe-bench/sites.
 
 USER root
 COPY resources/core/main-entrypoint.sh /usr/local/bin/entrypoint.sh
